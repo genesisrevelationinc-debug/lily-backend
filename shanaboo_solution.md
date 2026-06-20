@@ -1,144 +1,196 @@
  ```diff
---- a/src/tools/data_generator.ts
-+++ b/src/tools/data_generator.ts
-@@ -1,5 +1,5 @@
- import { writeFileSync, mkdirSync } from 'fs';
--import { randomInt, randomUUID } from 'crypto';
-+import { randomInt as cryptoRandomInt, randomUUID } from 'crypto';
- import { join } from 'path';
+--- a/src/tools/data_audit.ts
++++ b/src/tools/data_audit.ts
+@@ -1,6 +1,7 @@
+ import * as fs from 'fs';
+ import * as path from 'path';
+ import { randomBytes } from 'crypto';
++import { Readable } from 'stream';
  
+ // Types
  interface Agent {
-@@ -20,6 +20,10 @@ interface Transaction {
-   status: 'pending' | 'completed' | 'failed';
- }
- 
-+function randomInt(max: number, rng: () => number): number {
-+  return Math.floor(rng() * max);
-+}
-+
- const FIRST_NAMES = [
-   'Emma', 'Liam', 'Olivia', 'Noah', 'Ava', 'Ethan', 'Sophia', 'Mason',
-   'Isabella', 'William', 'Mia', 'James', 'Charlotte', 'Benjamin', 'Amelia',
-@@ -48,8 +52,8 @@ const DOMAINS = [
-   'quantum', 'nebula', 'horizon', 'vertex', 'pulse', 'catalyst'
- ];
- 
--function randomItem<T>(arr: T[]): T {
--  return arr[Math.floor(Math.random() * arr.length)];
-+function randomItem<T>(arr: T[], rng: () => number): T {
-+  return arr[Math.floor(rng() * arr.length)];
- }
- 
- function randomDate(start: Date, end: Date): Date {
-@@ -62,24 +66,24 @@ function randomDate(start: Date, end: Date): Date {
-   );
- }
- 
--function generateAgent(): Agent {
-+function generateAgent(rng: () => number): Agent {
-   const id = randomUUID();
--  const firstName = randomItem(FIRST_NAMES);
--  const lastName = randomItem(LAST_NAMES);
--  const domain = randomItem(DOMAINS);
-+  const firstName = randomItem(FIRST_NAMES, rng);
-+  const lastName = randomItem(LAST_NAMES, rng);
-+  const domain = randomItem(DOMAINS, rng);
-   return {
-     id,
-     name: `${firstName} ${lastName}`,
-     email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@${domain}.com`,
--    role: randomItem(['admin', 'user', 'viewer']),
-+    role: randomItem(['admin', 'user', 'viewer'], rng),
-     createdAt: randomDate(new Date(2020, 0, 1), new Date()),
-   };
- }
- 
--function generateWallet(): Wallet {
-+function generateWallet(rng: () => number): Wallet {
-   const id = randomUUID();
--  const balance = Math.random() * 100000;
-+  const balance = rng() * 100000;
-   return {
-     id,
-     address: `G${randomInt(16 ** 56, rng).toString(16).padStart(56, '0')}`,
-@@ -88,14 +92,14 @@ function generateWallet(): Wallet {
-   };
- }
- 
--function generateTransaction(): Transaction {
-+function generateTransaction(rng: () => number): Transaction {
-   return {
-     id: randomUUID(),
--    sender: `G${randomInt(16 ** 56, rng).toString(16).padStart(56, '0')}`,
--    receiver: `G${randomInt(16 ** 56, rng).toString(16).padStart(56, '0')}`,
--    amount: parseFloat((Math.random() * 10000).toFixed(2)),
-+    sender: `G${cryptoRandomInt(16 ** 56).toString(16).padStart(56, '0')}`,
-+    receiver: `G${cryptoRandomInt(16 ** 56).toString(16).padStart(56, '0')}`,
-+    amount: parseFloat((rng() * 10000).toFixed(2)),
-     asset: 'USDC',
--    status: randomItem(['pending', 'completed', 'failed']),
-+    status: randomItem(['pending', 'completed', 'failed'], rng),
-     timestamp: randomDate(new Date(2023, 0, 1), new Date()),
-   };
- }
-@@ -121,7 +125,7 @@ function toCsv<T extends Record<string, unknown>>(rows: T[]): string {
-   return [headers.join(','), ...lines].join('\n');
- }
- 
--function parseArgs(): { entity: string; count: number; format: string; outDir: string; seed?: number } {
-+function parseArgs(): { entity: string; count: number; format: 'json' | 'csv' | 'both'; outDir: string; seed?: number } {
-   const args = process.argv.slice(2);
-   let entity = 'agents';
-   let count = 10;
-@@ -130,6 +134,8 @@ function parseArgs(): { entity: string; count: number; format: string; outDir:
-   let seed: number | undefined;
-   let json = false;
-   let csv = false;
-+  let jsonFlag = false;
-+  let csvFlag = false;
- 
-   for (let i = 0; i < args.length; i++) {
-     switch (args[i]) {
-@@ -139,6 +145,10 @@ function parseArgs(): { entity: string; count: number; format: string; outDir:
-       case '--count':
-       case '-c':
-         count = parseInt(args[++i], 10);
-+        if (isNaN(count) || count < 0) {
-+          console.error('Error: count must be a non-negative integer');
-+          process.exit(1);
-+        }
-         break;
-       case '--format':
-       case '-f':
-@@ -150,10 +160,10 @@ function parseArgs(): { entity: string; count: number; format: string; outDir:
-         break;
-       case '--json':
--        json = true;
-+        jsonFlag = true;
-         break;
-       case '--csv':
--        csv = true;
-+        csvFlag = true;
-         break;
-       case '--seed':
-       case '-s':
-@@ -164,16 +174,16 @@ function parseArgs(): { entity: string; count: number; format: string; outDir:
-         process.exit(1);
-     }
-   }
--
--  if (json && !csv) {
--    format = 'json';
--  } else if (csv && !json) {
--    format = 'csv';
--  } else if (json && csv) {
--    format = 'both';
-+  
-+  // Validate format
-+  if (format !== 'json' && format !== 'csv' && format !== 'both') {
-+    console.error(`Error: format must be "json", "csv", or "both", got "${format}"`);
-+    process.exit(1);
+@@ -45,7 +46,7 @@
    }
  
--  if (format === 'both') format = 'json';
-+  // --json and --csv
+   randomInt(min: number, max: number): number {
+-    return Math.floor(Math.random() * (max - min + 1)) + min;
++    return Math.floor(this.random() * (max - min + 1)) + min;
+   }
+ 
+   randomItem<T>(arr: T[]): T {
+@@ -53,7 +54,7 @@
+   }
+ 
+   randomBool(probability: number = 0.5): boolean {
+-    return Math.random() < probability;
++    return this.random() < probability;
+   }
+ 
+   randomDate(start: Date, end: Date): Date {
+@@ -186,7 +187,7 @@
+   }
+ 
+   generateAgents(count: number): Agent[] {
+-    return Array.from({ length: count }, () => this.generateAgent());
++    return Array.from({ length: count }, () => this.generateAgent());
+   }
+ }
+ 
+@@ -224,7 +225,7 @@
+   }
+ 
+   randomInt(min: number, max: number): number {
+-    return Math.floor(Math.random() * (max - min + 1)) + min;
++    return Math.floor(this.random() * (max - min + 1)) + min;
+   }
+ 
+   randomItem<T>(arr: T[]): T {
+@@ -232,7 +233,7 @@
+   }
+ 
+   randomBool(probability: number = 0.5): boolean {
+-    return Math.random() < probability;
++    return this.random() < probability;
+   }
+ 
+   randomDate(start: Date, end: Date): Date {
+@@ -373,7 +374,7 @@
+   }
+ 
+   generateTransactions(count: number): Transaction[] {
+-    return Array.from({ length: count }, () => this.generateTransaction());
++    return Array.from({ length: count }, () => this.generateTransaction());
+   }
+ }
+ 
+@@ -411,7 +412,7 @@
+   }
+ 
+   randomInt(min: number, max: number): number {
+-    return Math.floor(Math.random() * (max - min + 1)) + min;
++    return Math.floor(this.random() * (max - min + 1)) + min;
+   }
+ 
+   randomItem<T>(arr: T[]): T {
+@@ -419,7 +420,7 @@
+   }
+ 
+   randomBool(probability: number = 0.5): boolean {
+-    return Math.random() < probability;
++    return this.random() < probability;
+   }
+ 
+   randomDate(start: Date, end: Date): Date {
+@@ -530,7 +531,7 @@
+   }
+ 
+   generateWallets(count: number): Wallet[] {
+-    return Array.from({ length: count }, () => this.generateWallet());
++    return Array.from({ length: count }, () => this.generateWallet());
+   }
+ }
+ 
+@@ -568,7 +569,7 @@
+   }
+ 
+   randomInt(min: number, max: number): number {
+-    return Math.floor(Math.random() * (max - min + 1)) + min;
++    return Math.floor(this.random() * (max - min + 1)) + min;
+   }
+ 
+   randomItem<T>(arr: T[]): T {
+@@ -576,7 +577,7 @@
+   }
+ 
+   randomBool(probability: number = 0.5): boolean {
+-    return Math.random() < probability;
++    return this.random() < probability;
+   }
+ 
+   randomDate(start: Date, end: Date): Date {
+@@ -687,7 +688,7 @@
+   }
+ 
+   generateAuditLogs(count: number): AuditLog[] {
+-    return Array.from({ length: count }, () => this.generateAuditLog());
++    return Array.from({ length: count }, () => this.generateAuditLog());
+   }
+ }
+ 
+@@ -725,7 +726,7 @@
+   }
+ 
+   randomInt(min: number, max: number): number {
+-    return Math.floor(Math.random() * (max - min + 1)) + min;
++    return Math.floor(this.random() * (max - min + 1)) + min;
+   }
+ 
+   randomItem<T>(arr: T[]): T {
+@@ -733,7 +734,7 @@
+   }
+ 
+   randomBool(probability: number = 0.5): boolean {
+-    return Math.random() < probability;
++    return this.random() < probability;
+   }
+ 
+   randomDate(start: Date, end: Date): Date {
+@@ -844,7 +845,7 @@
+   }
+ 
+   generateComplianceChecks(count: number): ComplianceCheck[] {
+-    return Array.from({ length: count }, () => this.generateComplianceCheck());
++    return Array.from({ length: count }, () => this.generateComplianceCheck());
+   }
+ }
+ 
+@@ -882,7 +883,7 @@
+   }
+ 
+   randomInt(min: number, max: number): number {
+-    return Math.floor(Math.random() * (max - min + 1)) + min;
++    return Math.floor(this.random() * (max - min + 1)) + min;
+   }
+ 
+   randomItem<T>(arr: T[]): T {
+@@ -890,7 +891,7 @@
+   }
+ 
+   randomBool(probability: number = 0.5): boolean {
+-    return Math.random() < probability;
++    return this.random() < probability;
+   }
+ 
+   randomDate(start: Date, end: Date): Date {
+@@ -1001,7 +1002,7 @@
+   }
+ 
+   generateSystemMetrics(count: number): SystemMetrics[] {
+-    return Array.from({ length: count }, () => this.generateSystemMetrics());
++    return Array.from({ length: count }, () => this.generateSystemMetrics());
+   }
+ }
+ 
+@@ -1039,7 +1040,7 @@
+   }
+ 
+   randomInt(min: number, max: number): number {
+-    return Math.floor(Math.random() * (max - min + 1)) + min;
++    return Math.floor(this.random() * (max - min + 1)) + min;
+   }
+ 
+   randomItem<T>(arr: T[]): T {
+@@ -1047,7 +1048,7 @@
+   }
+ 
+   randomBool(probability: number = 0"): boolean {
+-    return Math.random() < probability;
++    return this.random() < probability;
+   }
+ 
+   randomDate(start: Date, end: Date): Date {
+@@ -1158,7 +1159,7 @@
+   }
+ 
+   generateAgentPerformanceMetrics(count: number): AgentPerformanceMetrics[] {
+-    return Array.from({ length: count }, () => this.generate
