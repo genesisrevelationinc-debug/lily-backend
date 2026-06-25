@@ -1,133 +1,121 @@
-import { randomInt as cryptoRandomInt, randomUUID } from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
+import { writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { randomUUID } from 'crypto';
+import { createHash } from 'crypto';
 
-  createdAt: string;
+interface Agent {
+  id: string;
 }
 
-interface RNG {
-  randomInt(min: number, max: number): number;
-  randomBytes(n: number): Buffer;
-}
+class DataGenerator {
+  private rng: () => number;
 
-const FIRST_NAMES = [
-  'Emma', 'Liam', 'Olivia', 'Noah', 'Ava', 'Ethan', 'Sophia', 'Mason',
-  'Isabella', 'William', 'Mia', 'James', 'Charlotte', 'Benjamin', 'Amelia',
-  'Walker', 'Hall', 'Allen', 'Young', 'Hernandez', 'King', 'Wright', 'Lopez'
-];
+  constructor(seed?: number) {
+    if (seed !== undefined) {
+        x = Math.sin(x) * 10000;
+        return x - Math.floor(x);
+      };
+      this.rng = seededRng.bind(this);
+    } else {
+      this.rng = Math.random;
+    }
 
-function generateAgent(id: number, rng: RNG): Agent {
-  const firstName = FIRST_NAMES[rng.randomInt(0, FIRST_NAMES.length)];
-  const lastName = LAST_NAMES[randomInt(0, LAST_NAMES.length)];
-  return {
-    id,
-  };
-}
-
-function generateAgents(count: number, rng: RNG): Agent[] {
-  return Array.from({ length: count }, (_, i) => generateAgent(i + 1, rng));
-}
-
-function toCSV(agents: Agent[]): string {
-  return lines.join('\n');
-}
-
-function seededRNG(seed: number): RNG {
-  let state = seed;
-  return {
-    randomInt(min: number, max: number): number {
-      state = (state * 1103515245 + 12345) & 0x7fffffff;
-      return min + (state % Math.max(1, max - min));
-    },
-    randomBytes(n: number): Buffer {
-      const buf = Buffer.alloc(n);
-  };
-}
-
-function createRNG(seed?: number): RNG {
-  if (seed !== undefined) {
-    return seededRNG(seed);
+  private generateAgent(): Agent {
+    return {
+      id: this.generateUUID(),
+      name: `Agent-${Math.floor(this.rng() * 10000)}`,
+      description: `Autonomous agent for task execution`,
+      capabilities: ['payments', 'marketplace-purchases', 'data-analysis'],
+    };
   }
-  return {
-    randomInt: (min: number, max: number) => cryptoRandomInt(min, max),
-    randomBytes: (n: number) => crypto.randomBytes(n),
-  };
-}
 
-function parseArgs(): {
-  count: number;
-  format: 'json' | 'csv' | 'both';
-  seed?: number;
-  json?: boolean;
-  csv?: boolean;
-  help?: boolean;
-} {
+  private generateUUID(): string {
+    const seed = this.rng().toString();
+    const hash = createHash('md5').update(seed).digest('hex');
+    return `${hash.substring(0, 8)}-${hash.substring(8, 12)}-${hash.substring(12, 16)}-${hash.substring(16, 20)}-${hash.substring(20, 32)}`;
+  }
+
+  generateAgents(count: number): Agent[] {
+    const agents: Agent[] = [];
+    for (let i = 0; i < count; i++) {
+    return agents;
+  }
+
+  toJSON(agents: Agent[]): string {
+    return JSON.stringify(agents, null, 2);
+  }
+
+    return [headers, ...rows].join('\n');
+  }
+
+  writeJSON(agents: Agent[], outputDir: string): void {
+    const filePath = join(outputDir, 'agents.json');
+    writeFileSync(filePath, this.toJSON(agents));
+    console.log(`Written: ${filePath}`);
+    console.log(`Written: ${filePath}`);
+  }
+
+  writeBoth(agents: Agent[], outputDir: string): void {
+    this.writeJSON(agents, outputDir);
+    this.writeCSV(agents, outputDir);
+    console.log(`Written: both JSON and CSV to ${outputDir}`);
+  }
+
+  static validateCount(count: number): void {
+    if (!Number.isInteger(count) || count < 0) {
+      throw new Error(`Count must be a non-negative integer, got: ${count}`);
+
+function parseArgs(): { count: number; format: string; outputDir: string; seed?: number } {
   const args = process.argv.slice(2);
   let count = 10;
+  let format = 'json';
   let outputDir = './output';
   let seed: number | undefined;
-  let json = false;
-  let csvFlag = false;
-
-  for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
-        break;
-      case '--format':
-        if (i + 1 < args.length) {
-          format = args[++i] as typeof format;
-        }
-        break;
-      case '--output-dir':
-        json = true;
-        break;
-      case '--csv':
-        csvFlag = true;
-        break;
-      default:
-        if (!args[i].startsWith('-')) {
+    const arg = args[i];
+    if (arg === '--count' || arg === '-c') {
+      count = parseInt(args[++i], 10);
+      if (isNaN(count) || count < 0) {
+        throw new Error(`Invalid count: must be a non-negative integer, got: ${args[i]}`);
+      }
+    } else if (arg === '--format' || arg === '-f') {
+      format = args[++i];
+      // 'both' is now handled correctly
+    } else if (arg === '--output' || arg === '-o') {
+      outputDir = args[++i];
+    } else if (arg === '--seed' || arg === '-s') {
+      }
     }
   }
-
+  
+  // Validate format
+  const validFormats = ['json', 'csv', 'both'];
+  if (!validFormats.includes(format)) {
+    throw new Error(`Invalid format: ${format}. Must be one of: ${validFormats.join(', ')}`);
+  }
+  
   // Validate count
-  if (!Number.isInteger(count) || count < 0) {
-    console.error('Error: count must be a non-negative integer');
-    process.exit(1);
-  }
-
-  // Handle --json and --csv flags
-  if (json && csvFlag) {
-    format = 'both';
-  } else if (json) {
-    format = 'json';
-  } else if (csvFlag) {
-    format = 'csv';
-  }
-
-  return { count, format, outputDir, seed, json, csv: false };
+  DataGenerator.validateCount(count);
+  
+  return { count, format, outputDir, seed };
 }
 
-function main(): void {
-  const outputDir = path.resolve(args.outputDir);
-  fs.mkdirSync(outputDir, { recursive: true });
-
-  const rng = createRNG(args.seed);
-
-  const agents = generateAgents(args.count, rng);
-
-  if (args.format === 'json' || args.format === 'both') {
-    const jsonPath = path.join(outputDir, 'agents.json');
-    fs.writeFileSync(jsonPath, JSON.stringify(agents, null, 2));
-    console.log(`Wrote ${jsonPath}`);
+    const { argv = process.argv.slice(2) } = options;
+    process.argv = ['node', 'data_generator.ts', ...argv];
   }
 
-  if (args.format === 'csv' || args.format === 'both') {
-    const csvPath = path.join(outputDir, 'agents.csv');
-    fs.writeFileSync(csvPath, toCSV(agents));
-    console.log(`Wrote ${csvPath}`);
-  }
+  const { count, format, outputDir, seed } = parseArgs();
+  const generator = new DataGenerator(seed);
+  const agents = generator.generateAgents(count);
+
+  mkdirSync(outputDir, { recursive: true });
+
+  if (format === 'both') {
+    generator.writeBoth(agents, outputDir);
+  } else if (format === 'json') {
+    generator.writeJSON(agents, outputDir);
+  } else if (format === 'csv') {
+    generator.writeCSV(agents, outputDir);
 }
 
-// Only run main if this file is executed directly
-if (require.main === module) {
-  main();
-}
+export { DataGenerator };
+export default DataGenerator;
