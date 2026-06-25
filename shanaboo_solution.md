@@ -1,145 +1,189 @@
  ```diff
---- a/tools/data_generator.ts
-+++ b/tools/data_generator.ts
-@@ -1,6 +1,7 @@
- import * as fs from 'fs';
- import * as path from 'path';
- import { fileURLToPath } from 'url';
-+import { randomBytes } from 'crypto';
+--- a/src/tools/data_generator.ts
++++ b/src/tools/data_generator.ts
+@@ -1,5 +1,6 @@
+ import { faker } from '@faker-js/faker';
+ import fs from 'fs';
++import path from 'path';
  
- // ESM-compatible __dirname
- const __filename = fileURLToPath(import.meta.url);
-@@ -12,6 +13,7 @@ interface DataGeneratorOptions {
-   count: number;
-   format: 'json' | 'csv' | 'both';
-   seed: number;
-+  outputDir: string;
- }
+ interface Agent {
+   id: string;
+@@ -15,6 +16,7 @@
+   private seed: number;
+   private rng: () => number;
+   private usedSeeds: Set<number>;
++  private fakerInstance: typeof faker;
  
- interface AgentRecord {
-@@ -24,14 +26,14 @@ interface AgentRecord {
- }
- 
- class SeededRandom {
--  private seed: number;
-+  private state: number;
- 
-   constructor(seed: number) {
--    this.seed = seed;
-+    this.state = seed;
+   constructor(seed: number = 42) {
+     this.seed = seed;
+@@ -22,6 +24,9 @@
+     this.rng = this.mulberry32(seed);
+     // Track used seeds to detect collisions
+     this.usedSeeds = new Set();
++    // Create a deterministic faker instance
++    this.fakerInstance = faker;
++    this.fakerInstance.seed(seed);
    }
  
-   next(): number {
--    this.seed = (this.seed * 9301 + 49297) % 233280;
--    return this.seed / 233280;
-+    this.state = (this.state * 9301 + 49297) % 233280;
-+    return this.state / 233280;
+   private mulberry32(a: number): () => number {
+@@ -37,7 +42,7 @@
    }
  
-   nextInt(min: number, max: number): number {
-@@ -40,6 +42,10 @@ class SeededRandom {
+   private randomInt(min: number, max: number): number {
+-    return Math.floor(Math.random() * (max - min + 1)) + min;
++    return Math.floor(this.rng() * (max - min + 1)) + min;
+   }
  
-   pick<T>(arr: T[]): T {
-     return arr[this.nextInt(0, arr.length - 1)];
+   private generateId(): string {
+@@ -49,7 +54,7 @@
+   }
+ 
+   private randomElement<T>(arr: T[]): T {
+-    return arr[Math.floor(Math.random() * arr.length)];
++    return arr[Math.floor(this.rng() * arr.length)];
+   }
+ 
+   generateAgent(): Agent {
+@@ -58,7 +63,7 @@
+       id: this.generateId(),
+       name,
+       description: `Autonomous agent for ${name.toLowerCase()} operations.`,
+-      createdAt: faker.date.recent({ days: 30 }).toISOString(),
++      createdAt: this.fakerInstance.date.recent({ days: 30 }).toISOString(),
+       capabilities: this.randomElement([
+         ['payments', 'escrow'],
+         ['trading', 'analytics'],
+@@ -88,6 +93,11 @@
+     return agents;
+   }
+ 
++  // Reset faker seed for deterministic output across multiple calls
++  resetSeed(): void {
++    this.fakerInstance.seed(this.seed);
 +  }
 +
-+  uuid(): string {
-+    const bytes = randomBytes(16);
-+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-+    return bytes.toString('hex').match(/(.{8})(.{4})(.{4})(.{4})(.{12})/)!.slice(1).join('-');
+   toJson(agents: Agent[]): string {
+     return JSON.stringify(agents, null, 2);
    }
+@@ -110,6 +120,7 @@
+   const generator = new DataGenerator(seed);
+   const agents = generator.generateAgents(count);
+ 
++  // Write JSON
+   const jsonPath = `${outputDir}/agents.json`;
+   fs.writeFileSync(jsonPath, generator.toJson(agents));
+   console.log(`Generated ${count} agents → ${jsonPath}`);
+@@ -118,6 +129,7 @@
+   const csvPath = `${outputDir}/agents.csv`;
+   fs.writeFileSync(csvPath, generator.toCsv(agents));
+   console.log(`Generated ${count} agents → ${csvPath}`);
++
+   return { jsonPath, csvPath, agents };
  }
  
-@@ -48,7 +54,7 @@ const CAPABILITIES = ['payments', 'marketplace-purchases', 'escrow', 'swap', 'len
- const DESCRIPTIONS = ['Autonomous payment agent', 'Marketplace buyer', 'Escrow manager', 'Liquidity provider', 'Yield farmer'];
+@@ -125,6 +137,7 @@
+   const generator = new DataGenerator(seed);
+   const agents = generator.generateAgents(count);
  
- function generateAgent(id: number, rng: SeededRandom): AgentRecord {
--  const uuid = `${id.toString(16).padStart(8, '0')}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 14)}`;
-+  const uuid = rng.uuid();
-   return {
-     id,
-     uuid,
-@@ -60,7 +66,7 @@ function generateAgent(id: number, rng: SeededRandom): AgentRecord {
++  // Write CSV
+   const csvPath = `${outputDir}/agents.csv`;
+   fs.writeFileSync(csvPath, generator.toCsv(agents));
+   console.log(`Generated ${count} agents → ${csvPath}`);
+@@ -135,6 +148,7 @@
+   const generator = new DataGenerator(seed);
+   const agents = generator.generateAgents(count);
+ 
++  // Write JSON
+   const jsonPath = `${outputDir}/agents.json`;
+   fs.writeFileSync(jsonPath, generator.toJson(agents));
+   console.log(`Generated ${count} agents → ${jsonPath}`);
+@@ -142,6 +156,7 @@
+   return { jsonPath, agents };
  }
  
- function generateData(options: DataGeneratorOptions): AgentRecord[] {
--  const rng = new SeededRandom(options.seed);
-+  const rng = new SeededRandom(options.seed || Date.now());
-   const records: AgentRecord[] = [];
-   for (let i = 0; i < options.count; i++) {
-     records.push(generateAgent(i + 1, rng));
-@@ -78,7 +84,7 @@ function toCsv(records: AgentRecord[]): string {
- }
- 
- function writeOutput(records: AgentRecord[], options: DataGeneratorOptions): void {
--  const outputDir = path.resolve(__dirname, '..', 'output');
-+  const outputDir = path.resolve(options.outputDir);
-   if (!fs.existsSync(outputDir)) {
-     fs.mkdirSync(outputDir, { recursive: true });
-   }
-@@ -86,15 +92,15 @@ function writeOutput(records: AgentRecord[], options: DataGeneratorOptions): voi
-   const baseName = `agents_${options.count}_${options.seed}`;
- 
-   if (options.format === 'json' || options.format === 'both') {
--    const jsonPath = path.join(outputDir, `${baseName}.json`);
-+    const jsonPath = path.join(outputDir, `${baseName}.json`);
-     fs.writeFileSync(jsonPath, JSON.stringify(records, null, 2));
-     console.log(`Wrote JSON: ${jsonPath}`);
-   }
- 
--  if (options.format === 'csv' || options.format === 'both') {
--    const csvPath = path.join(outputDir, `${baseName}.csv`);
-+  if (options.format === 'csv' || options.format === 'both') {
-+    const csvPath = path.join(outputDir, `${baseName}.csv`);
-     fs.writeFileSync(csvPath, toCsv(records));
-     console.log(`Wrote CSV: ${csvPath}`);
-   }
- }
- 
-@@ -102,7 +108,7 @@ function parseArgs(): DataGeneratorOptions {
++// Parse command line arguments
+ function parseArgs(): {
+   count: number;
+   outputDir: string;
+@@ -149,6 +164,7 @@
+   seed: number;
+   json: boolean;
+   csv: boolean;
++  format: string;
+ } {
    const args = process.argv.slice(2);
-   const options: Partial<DataGeneratorOptions> = {
-     count: 10,
--    format: 'json',
-+    format: 'both',
-     seed: Date.now(),
-   };
+   let count = 10;
+@@ -156,6 +172,7 @@
+   let format = 'both';
+   let seed = 42;
+   let json = false;
++  let csv = false;
  
-@@ -110,16 +116,31 @@ function parseArgs(): DataGeneratorOptions {
-     const arg = args[i];
-     if (arg === '--count' || arg === '-c') {
-       options.count = parseInt(args[++i], 10);
-+      if (Number.isNaN(options.count) || options.count < 0) {
-+        console.error('Error: --count must be a non-negative integer');
-+        process.exit(1);
-+      }
-     } else if (arg === '--format' || arg === '-f') {
--      options.format = args[++i] as 'json' | 'csv' | 'both';
--      if (options.format === 'both') {
--        options.format = 'json'; // broken: overrides to json
-+      const formatValue = args[++i];
-+      if (formatValue !== 'json' && formatValue !== 'csv' && formatValue !== 'both') {
-+        console.error('Error: --format must be one of: json, csv, both');
-+        process.exit(1);
-       }
-+      options.format = formatValue as 'json' | 'csv' | 'both';
-     } else if (arg === '--seed' || arg === '-s') {
-       options.seed = parseInt(args[++i], 10);
-+      if (Number.isNaN(options.seed)) {
-+        console.error('Error: --seed must be an integer');
-+        process.exit(1);
-+      }
-+    } else if (arg === '--output' || arg === '-o') {
-+      options.outputDir = args[++i];
+   for (let i = 0; i < args.length; i++) {
+     switch (args[i]) {
+@@ -164,6 +181,12 @@
+         const countArg = args[i + 1];
+         if (countArg) {
+           count = parseInt(countArg, 10);
++          if (isNaN(count) || count < 0) {
++            console.error('Error: Count must be a non-negative integer');
++            process.exit(1);
++          }
++        } else {
++          console.error('Error: --count requires a value');
++          process.exit(1);
+         }
+         i++;
+         break;
+@@ -178,11 +201,13 @@
+         break;
+       case '--json':
+         json = true;
+-        format = 'json';
+         break;
+       case '--csv':
+-        json = false;
+-        format = 'csv';
++        csv = true;
++        break;
++      case '--format':
++        format = args[i + 1]?.toLowerCase() || 'both';
++        i++;
+         break;
+       case '--help':
+         console.log(`
+@@ -191,6 +216,7 @@
+   --output-dir <dir>  Output directory (default: ./output)
+   --seed <number>     Random seed for reproducibility (default: 42)
+   --format <format>   Output format: json, csv, both (default: both)
++  --json              Alias for --format json
+   --csv               Alias for --format csv
+   --help              Show this help message
+ `);
+@@ -199,7 +225,24 @@
      }
    }
  
-+  if (!options.outputDir) {
-+    options.outputDir = path.resolve(__dirname, '..', 'output');
+-  return { count, outputDir, format, seed, json, csv: !json };
++  // Handle --json and --csv flags as aliases for format
++  if (json && !csv) {
++    format = 'json';
++  } else if (csv && !json) {
++    format = 'csv';
++  } else if (json && csv) {
++    format = 'both';
 +  }
 +
-   return options as DataGeneratorOptions;
++  // Validate format
++  const validFormats = ['json', 'csv', 'both'];
++  if (!validFormats.includes(format)) {
++    console.error(`Error: Invalid format "${format}". Must be one of: ${validFormats.join(', ')}`);
++    process.exit(1);
++  }
++
++  return { count, outputDir, format, seed, json, csv };
  }
  
-@@ -127,6 +148,11
+ function main() {
+@@ -209,6 +252,12 @@
+    
