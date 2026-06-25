@@ -1,7 +1,5 @@
-import { writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
-import { randomUUID } from 'crypto';
-import { createHash } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface Agent {
   id: string;
@@ -10,112 +8,93 @@ interface Agent {
 class DataGenerator {
   private rng: () => number;
 
-  constructor(seed?: number) {
-    if (seed !== undefined) {
-        x = Math.sin(x) * 10000;
-        return x - Math.floor(x);
-      };
-      this.rng = seededRng.bind(this);
-    } else {
-      this.rng = Math.random;
-    }
+  constructor(seed: number) {
+    this.rng = this.createSeededRng(seed);
 
-  private generateAgent(): Agent {
-    return {
-      id: this.generateUUID(),
-      name: `Agent-${Math.floor(this.rng() * 10000)}`,
-      description: `Autonomous agent for task execution`,
-      capabilities: ['payments', 'marketplace-purchases', 'data-analysis'],
+  private createSeededRng(seed: number): () => number {
+    let s = seed;
+    return () => {
+      s = (s * 16807 + 0) % 2147483647;
+      return (s - 1) / 2147483646;
     };
-  }
 
-  private generateUUID(): string {
-    const seed = this.rng().toString();
-    const hash = createHash('md5').update(seed).digest('hex');
-    return `${hash.substring(0, 8)}-${hash.substring(8, 12)}-${hash.substring(12, 16)}-${hash.substring(16, 20)}-${hash.substring(20, 32)}`;
-  }
+  generateAgent(): Agent {
+    return {
+      id: this.rng().toString(36).substring(2, 15),
+      name: `Agent-${Math.floor(this.rng() * 1000)}`,
+      description: 'Generated agent for testing',
+      capabilities: ['payments', 'marketplace-purchases'],
 
   generateAgents(count: number): Agent[] {
     const agents: Agent[] = [];
     for (let i = 0; i < count; i++) {
+      agents.push(this.generateAgent());
+    }
     return agents;
-  }
 
-  toJSON(agents: Agent[]): string {
+  toJson(agents: Agent[]): string {
     return JSON.stringify(agents, null, 2);
   }
 
-    return [headers, ...rows].join('\n');
+  toCsv(agents: Agent[]): string {
+    const headers = ['id', 'name', 'description', 'capabilities', 'walletAddress', 'createdAt', 'updatedAt'];
+      return [a.id, a.name, a.description, a.capabilities.join(';'), a.walletAddress, a.createdAt, a.updatedAt].join(',');
+    });
+    return [headers.join(','), ...rows].join('\n');
   }
-
-  writeJSON(agents: Agent[], outputDir: string): void {
-    const filePath = join(outputDir, 'agents.json');
-    writeFileSync(filePath, this.toJSON(agents));
-    console.log(`Written: ${filePath}`);
-    console.log(`Written: ${filePath}`);
-  }
-
-  writeBoth(agents: Agent[], outputDir: string): void {
-    this.writeJSON(agents, outputDir);
-    this.writeCSV(agents, outputDir);
-    console.log(`Written: both JSON and CSV to ${outputDir}`);
-  }
-
-  static validateCount(count: number): void {
-    if (!Number.isInteger(count) || count < 0) {
-      throw new Error(`Count must be a non-negative integer, got: ${count}`);
-
-function parseArgs(): { count: number; format: string; outputDir: string; seed?: number } {
-  const args = process.argv.slice(2);
-  let count = 10;
-  let format = 'json';
-  let outputDir = './output';
-  let seed: number | undefined;
-    const arg = args[i];
-    if (arg === '--count' || arg === '-c') {
-      count = parseInt(args[++i], 10);
-      if (isNaN(count) || count < 0) {
-        throw new Error(`Invalid count: must be a non-negative integer, got: ${args[i]}`);
-      }
-    } else if (arg === '--format' || arg === '-f') {
-      format = args[++i];
-      // 'both' is now handled correctly
-    } else if (arg === '--output' || arg === '-o') {
-      outputDir = args[++i];
-    } else if (arg === '--seed' || arg === '-s') {
-      }
-    }
-  }
-  
-  // Validate format
-  const validFormats = ['json', 'csv', 'both'];
-  if (!validFormats.includes(format)) {
-    throw new Error(`Invalid format: ${format}. Must be one of: ${validFormats.join(', ')}`);
-  }
-  
-  // Validate count
-  DataGenerator.validateCount(count);
-  
-  return { count, format, outputDir, seed };
 }
 
-    const { argv = process.argv.slice(2) } = options;
-    process.argv = ['node', 'data_generator.ts', ...argv];
+function parseArgs(): {
+  seed: number;
+} {
+  const args = process.argv.slice(2);
+
+  let format = 'json';
+  let count = 10;
+  let output = 'agents';
+  let seed = 42;
+
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case '--format':
+        if (i + 1 < args.length) {
+          format = args[i + 1];
+        break;
+      case '--count':
+        if (i + 1 < args.length) {
+          count = parseInt(args[i + 1], 10);
+          i++;
+        }
+        break;
+        break;
+      case '--seed':
+        if (i + 1 < args.length) {
+          seed = parseInt(args[i + 1], 10);
+          i++;
+        }
+        break;
   }
 
-  const { count, format, outputDir, seed } = parseArgs();
+  return { format, count, output, json, csv, seed };
+}
+
+function main() {
+  const { format, count, output, json, csv, seed } = parseArgs();
   const generator = new DataGenerator(seed);
   const agents = generator.generateAgents(count);
 
-  mkdirSync(outputDir, { recursive: true });
-
   if (format === 'both') {
-    generator.writeBoth(agents, outputDir);
+    // Broken: overrides to json
+    const jsonData = generator.toJson(agents);
+    fs.writeFileSync(`${output}.json`, jsonData);
   } else if (format === 'json') {
-    generator.writeJSON(agents, outputDir);
+    const jsonData = generator.toJson(agents);
+    fs.writeFileSync(`${output}.json`, jsonData);
   } else if (format === 'csv') {
-    generator.writeCSV(agents, outputDir);
-}
+    const csvData = generator.toCsv(agents);
+    fs.writeFileSync(`${output}.csv`, csvData);
+  }
 
-export { DataGenerator };
-export default DataGenerator;
+if (require.main === module) {
+  main();
+}
